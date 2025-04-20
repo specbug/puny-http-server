@@ -33,7 +33,7 @@ def handle_echo(req_path, sender_socket):
 
 def handle_user_agent(headers, sender_socket):
     user_agent = headers.get("User-Agent", "Unknown")
-    response_body = f"User-Agent: {user_agent}".encode()
+    response_body = f"{user_agent}".encode()
     response_headers = f"Content-Type: text/plain\r\nContent-Length: {len(response_body)}\r\n"
     response = f"HTTP/1.1 200 OK\r\n{response_headers}\r\n".encode() + response_body
     sender_socket.sendall(response)
