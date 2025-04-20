@@ -1,4 +1,5 @@
 import socket  # noqa: F401
+import threading
 
 def parse_request(request_bytes):
     """Parses the raw HTTP request and returns method, path, and headers."""
@@ -58,31 +59,42 @@ def handle_user_agent(headers, sender_socket):
     }
     send_response(sender_socket, 200, "OK", response_headers, response_body)
 
-def main():
-    # You can use print statements as follows for debugging, they'll be visible when running tests.
-    print("Logs from your program will appear here!")
-
-    server_socket = socket.create_server(("localhost", 4221), reuse_port=True)
-    conn = server_socket.accept()  # wait for client
-    sender_socket, addr = conn
-
-    # Get the request from the client
+def handle_request(sender_socket):
+    """Handles the incoming HTTP request."""
     req_bytes = sender_socket.recv(2048)
     method, path, headers = parse_request(req_bytes)
     print(f"Received request: {method} {path} {headers}")
-
-    if path == "/":
-        send_response(sender_socket, 200, "OK")
-    elif path.startswith("/echo/"):
-        handle_echo(path, sender_socket)
-    elif path.startswith("/user-agent"):
-        handle_user_agent(headers, sender_socket)
+    if method == "GET":
+        if path == "/":
+            send_response(sender_socket, 200, "OK")
+        elif path.startswith("/echo/"):
+            handle_echo(path, sender_socket)
+        elif path.startswith("/user-agent"):
+            handle_user_agent(headers, sender_socket)
+        else:
+            send_response(sender_socket, 404, "Not Found")
     else:
-        send_response(sender_socket, 404, "Not Found")
+        send_response(sender_socket, 405, "Method Not Allowed")
 
-    # Close the connection
+    # Close the connection after handling the request
     sender_socket.close()
-    server_socket.close()
+
+def main():
+    server_socket = socket.create_server(("localhost", 4221), reuse_port=True)
+    print(f"Server started on port 4221")
+    try:
+        while True:
+            conn = server_socket.accept()  # wait for client
+            sender_socket, addr = conn
+            # Start a new thread to handle the request
+            # The socket is closed in handle_request after the response is sent
+            threading.Thread(target=handle_request, args=(sender_socket,), daemon=True).start()
+    except KeyboardInterrupt:
+        print("\nServer shutting down...")
+    finally:
+        # Ensure the server socket is closed upon exit
+        server_socket.close()
+        print("Server socket closed.")
 
 if __name__ == "__main__":
     main()
