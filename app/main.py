@@ -17,7 +17,10 @@ def main():
     client_req = reqs[0].split(" ")
     client_req_path = client_req[1]
     # Extract content after /echo/ prefix
-    s = client_req_path[6:]  # Skip "/echo/" prefix
+    if client_req_path.startswith("/echo/"):
+        s = client_req_path[6:]  # Skip "/echo/" prefix
+    else:
+        sender_socket.sendall(b"HTTP/1.1 404 Not Found\r\n\r\n")
     s_len = len(s)
     # Send the response back to the client
     sender_socket.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " + str(s_len).encode() + b"\r\n\r\n" + s.encode())  
