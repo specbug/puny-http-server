@@ -1,6 +1,7 @@
 import sys
 import socket
 import threading
+import os # Import os for path joining
 
 def parse_request(request_bytes):
     """Parses the raw HTTP request and returns method, path, and headers."""
@@ -38,10 +39,10 @@ def send_response(sender_socket, status_code, status_text, headers=None, body=No
     response = build_response(status_code, status_text, headers, body)
     sender_socket.sendall(response)
 
-def handle_root(path, headers, sender_socket):
+def handle_root(path, headers, sender_socket, directory):
     send_response(sender_socket, 200, "OK")
 
-def handle_echo(path, headers, sender_socket):
+def handle_echo(path, headers, sender_socket, directory):
     s = path[len("/echo/"):]
     s_len = len(s)
     response_body = s.encode()
@@ -51,7 +52,7 @@ def handle_echo(path, headers, sender_socket):
     }
     send_response(sender_socket, 200, "OK", response_headers, response_body)
 
-def handle_user_agent(path, headers, sender_socket):
+def handle_user_agent(path, headers, sender_socket, directory):
     user_agent = headers.get("User-Agent", "Unknown")
     response_body = user_agent.encode()
     response_headers = {
@@ -60,12 +61,19 @@ def handle_user_agent(path, headers, sender_socket):
     }
     send_response(sender_socket, 200, "OK", response_headers, response_body)
 
-def handle_file(path, headers, sender_socket):
-    file_name = path[len("/files/"):]
-    dir_name = sys.argv[2]
-    file_name = f"{dir_name}/{file_name}"
+def handle_file(path, headers, sender_socket, directory):
+    # Extract filename relative to the specified directory
+    relative_file_path = path[len("/files/"):]
+    # Construct the full path safely
+    full_file_path = os.path.join(directory, relative_file_path)
+
+    # Prevent directory traversal attacks (basic check)
+    if not os.path.abspath(full_file_path).startswith(os.path.abspath(directory)):
+        send_response(sender_socket, 403, "Forbidden") # Or 404 depending on desired behavior
+        return
+
     try:
-        with open(file_name, "rb") as f:
+        with open(full_file_path, "rb") as f:
             file_data = f.read()
         response_headers = {
             "Content-Type": "application/octet-stream",
@@ -74,36 +82,39 @@ def handle_file(path, headers, sender_socket):
         send_response(sender_socket, 200, "OK", response_headers, file_data)
     except FileNotFoundError:
         send_response(sender_socket, 404, "Not Found")
+    except IsADirectoryError:
+        send_response(sender_socket, 404, "Not Found") # Treat directories as not found
     except Exception as e:
-        print(f"Error reading file: {e}")
+        print(f"Error reading file '{full_file_path}': {e}")
         send_response(sender_socket, 500, "Internal Server Error")
 
-def handle_not_found(path, headers, sender_socket):
+def handle_not_found(path, headers, sender_socket, directory):
     send_response(sender_socket, 404, "Not Found")
 
 ROUTES = [
     ("GET", lambda p: p == "/", handle_root),
     ("GET", lambda p: p.startswith("/echo/"), handle_echo),
-    ("GET", lambda p: p == "/user-agent", handle_user_agent), # Exact match for /user-agent
+    ("GET", lambda p: p == "/user-agent", handle_user_agent),
     ("GET", lambda p: p.startswith("/files/"), handle_file)
 ]
 
-def handle_request(sender_socket):
-    """Handles the incoming HTTP request using defined routes."""
+def handle_request(sender_socket, directory):
+    """Handles the incoming HTTP request using defined routes and the specified directory."""
     try:
         req_bytes = sender_socket.recv(2048)
-        if not req_bytes: # Handle empty request / closed connection
+        if not req_bytes:
             return 
         method, path, headers = parse_request(req_bytes)
         print(f"Received request: {method} {path}")
 
-        handler = handle_not_found # Default handler
+        handler = handle_not_found
         for route_method, path_checker, route_handler in ROUTES:
             if method == route_method and path_checker(path):
                 handler = route_handler
                 break
         
-        handler(path, headers, sender_socket)
+        # Pass the directory to the selected handler
+        handler(path, headers, sender_socket, directory)
 
     except Exception as e:
         print(f"Error handling request: {e}")
@@ -112,17 +123,27 @@ def handle_request(sender_socket):
         except Exception as send_e:
             print(f"Error sending 500 response: {send_e}")
     finally:
-        # Close the connection after handling the request or if an error occurred
         sender_socket.close()
 
 def main():
+    # Parse command line arguments
+    directory = None
+    if len(sys.argv) > 2 and sys.argv[1] == '--directory':
+        directory = sys.argv[2]
+        print(f"Serving files from directory: {directory}")
+    else:
+        print("Warning: --directory argument not provided. File serving will not work correctly.")
+        # Optionally exit or set a default directory if file serving is mandatory
+        # sys.exit(1)
+
     server_socket = socket.create_server(("localhost", 4221), reuse_port=True)
     print(f"Server started on port 4221")
     try:
         while True:
             conn = server_socket.accept()
             sender_socket, addr = conn
-            threading.Thread(target=handle_request, args=(sender_socket,), daemon=True).start()
+            # Pass the directory path to the handler thread
+            threading.Thread(target=handle_request, args=(sender_socket, directory), daemon=True).start()
     except KeyboardInterrupt:
         print("\nServer shutting down...")
     finally:
