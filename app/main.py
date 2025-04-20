@@ -10,7 +10,15 @@ def main():
     server_socket = socket.create_server(("localhost", 4221), reuse_port=True)
     conn = server_socket.accept() # wait for client
     sender_socket, addr = conn
-    sender_socket.sendall(b"HTTP/1.1 200 OK\r\n\r\n")
+    # Get the GET request from the client
+    req = sender_socket.recv(2048)
+    reqs = req.decode().split("\r\n")
+    print(reqs)
+    path_req = reqs[0].split(" ")[1]
+    if path_req == "/":
+        sender_socket.sendall(b"HTTP/1.1 200 OK\r\n\r\n")
+    else:
+        sender_socket.sendall(b"HTTP/1.1 404 Not Found\r\n\r\n")
     
 
 
