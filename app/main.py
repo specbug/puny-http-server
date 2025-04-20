@@ -59,6 +59,22 @@ def handle_user_agent(path, headers, sender_socket):
     }
     send_response(sender_socket, 200, "OK", response_headers, response_body)
 
+def handle_file(path, headers, sender_socket):
+    file_name = path[len("/files/"):]
+    try:
+        with open(file_name, "rb") as f:
+            file_data = f.read()
+        response_headers = {
+            "Content-Type": "application/octet-stream",
+            "Content-Length": str(len(file_data))
+        }
+        send_response(sender_socket, 200, "OK", response_headers, file_data)
+    except FileNotFoundError:
+        send_response(sender_socket, 404, "Not Found")
+    except Exception as e:
+        print(f"Error reading file: {e}")
+        send_response(sender_socket, 500, "Internal Server Error")
+
 def handle_not_found(path, headers, sender_socket):
     send_response(sender_socket, 404, "Not Found")
 
@@ -66,6 +82,7 @@ ROUTES = [
     ("GET", lambda p: p == "/", handle_root),
     ("GET", lambda p: p.startswith("/echo/"), handle_echo),
     ("GET", lambda p: p == "/user-agent", handle_user_agent), # Exact match for /user-agent
+    ("GET", lambda p: p.startswith("/files/"), handle_file)
 ]
 
 def handle_request(sender_socket):
