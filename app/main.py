@@ -4,8 +4,17 @@ import threading
 import os # Import os for path joining
 
 def parse_request(request_bytes):
-    """Parses the raw HTTP request and returns method, path, and headers."""
-    request_lines = request_bytes.decode().split("\r\n")
+    """Parses the raw HTTP request and returns method, path, headers and body."""
+    request_text = request_bytes.decode()
+    
+    # Split headers and body
+    if "\r\n\r\n" in request_text:
+        headers_text, body = request_text.split("\r\n\r\n", 1)
+    else:
+        headers_text = request_text
+        body = ""
+        
+    request_lines = headers_text.split("\r\n")
     start_line = request_lines[0]
     method, path, _ = start_line.split(" ")
     
@@ -17,7 +26,7 @@ def parse_request(request_bytes):
             key, value = line.split(":", 1)
             headers[key.strip()] = value.strip()
             
-    return method, path, headers
+    return method, path, headers, body
 
 def build_response(status_code, status_text, headers=None, body=None):
     """Builds an HTTP response string/bytes."""
@@ -39,10 +48,10 @@ def send_response(sender_socket, status_code, status_text, headers=None, body=No
     response = build_response(status_code, status_text, headers, body)
     sender_socket.sendall(response)
 
-def handle_root(path, headers, sender_socket, directory):
+def handle_root(path, headers, sender_socket, directory, body):
     send_response(sender_socket, 200, "OK")
 
-def handle_echo(path, headers, sender_socket, directory):
+def handle_echo(path, headers, sender_socket, directory, body):
     s = path[len("/echo/"):]
     s_len = len(s)
     response_body = s.encode()
@@ -52,7 +61,7 @@ def handle_echo(path, headers, sender_socket, directory):
     }
     send_response(sender_socket, 200, "OK", response_headers, response_body)
 
-def handle_user_agent(path, headers, sender_socket, directory):
+def handle_user_agent(path, headers, sender_socket, directory, body):
     user_agent = headers.get("User-Agent", "Unknown")
     response_body = user_agent.encode()
     response_headers = {
@@ -61,7 +70,7 @@ def handle_user_agent(path, headers, sender_socket, directory):
     }
     send_response(sender_socket, 200, "OK", response_headers, response_body)
 
-def handle_file(path, headers, sender_socket, directory):
+def handle_file(path, headers, sender_socket, directory, body):
     # Extract filename relative to the specified directory
     relative_file_path = path[len("/files/"):]
     # Construct the full path safely
@@ -88,14 +97,30 @@ def handle_file(path, headers, sender_socket, directory):
         print(f"Error reading file '{full_file_path}': {e}")
         send_response(sender_socket, 500, "Internal Server Error")
 
-def handle_not_found(path, headers, sender_socket, directory):
+def handle_file_create(path, headers, sender_socket, directory, body):
+    relative_file_path = path[len("/files/"):]
+    full_file_path = os.path.join(directory, relative_file_path)
+    try:
+        with open(full_file_path, "wb") as f:
+            f.write(body.encode())
+        response_headers = {
+            "Content-Type": "text/plain",
+            "Content-Length": str(len(body))
+        }
+        send_response(sender_socket, 201, "Created", response_headers, body.encode())
+    except Exception as e:
+        print(f"Error creating file '{full_file_path}': {e}")
+        send_response(sender_socket, 500, "Internal Server Error")
+
+def handle_not_found(path, headers, sender_socket, directory, body):
     send_response(sender_socket, 404, "Not Found")
 
 ROUTES = [
     ("GET", lambda p: p == "/", handle_root),
     ("GET", lambda p: p.startswith("/echo/"), handle_echo),
     ("GET", lambda p: p == "/user-agent", handle_user_agent),
-    ("GET", lambda p: p.startswith("/files/"), handle_file)
+    ("GET", lambda p: p.startswith("/files/"), handle_file),
+    ("POST", lambda p: p.startswith("/files/"), handle_file_create),
 ]
 
 def handle_request(sender_socket, directory):
@@ -104,7 +129,7 @@ def handle_request(sender_socket, directory):
         req_bytes = sender_socket.recv(2048)
         if not req_bytes:
             return 
-        method, path, headers = parse_request(req_bytes)
+        method, path, headers, body = parse_request(req_bytes)
         print(f"Received request: {method} {path}")
 
         handler = handle_not_found
@@ -114,7 +139,7 @@ def handle_request(sender_socket, directory):
                 break
         
         # Pass the directory to the selected handler
-        handler(path, headers, sender_socket, directory)
+        handler(path, headers, sender_socket, directory, body)
 
     except Exception as e:
         print(f"Error handling request: {e}")
