@@ -56,12 +56,13 @@ def handle_echo(path, headers, sender_socket, directory, body):
     s = path[len("/echo/"):]
     content_encodings = headers.get("Accept-Encoding")
     content_encodings = content_encodings.split(", ") if content_encodings else []
+    response_body = s.encode()
 
     if "gzip" in content_encodings:
-        s = gzip.compress(s.encode())
+        s = gzip.compress(response_body)
+        response_body = s
 
     s_len = len(s)
-    response_body = s.encode()
     response_headers = {
         "Content-Type": "text/plain",
         "Content-Length": str(s_len)
