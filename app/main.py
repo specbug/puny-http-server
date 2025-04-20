@@ -53,12 +53,15 @@ def handle_root(path, headers, sender_socket, directory, body):
 
 def handle_echo(path, headers, sender_socket, directory, body):
     s = path[len("/echo/"):]
+    content_encoding = headers.get("Accept-Encoding")
     s_len = len(s)
     response_body = s.encode()
     response_headers = {
         "Content-Type": "text/plain",
         "Content-Length": str(s_len)
     }
+    if content_encoding == "gzip":
+        response_headers["Content-Encoding"] = "gzip"
     send_response(sender_socket, 200, "OK", response_headers, response_body)
 
 def handle_user_agent(path, headers, sender_socket, directory, body):
