@@ -37,20 +37,20 @@ def send_response(sender_socket, status_code, status_text, headers=None, body=No
     response = build_response(status_code, status_text, headers, body)
     sender_socket.sendall(response)
 
-def handle_echo(req_path, sender_socket):
-    if req_path.startswith("/echo/"):
-        s = req_path[6:]
-        s_len = len(s)
-        response_body = s.encode()
-        response_headers = {
-            "Content-Type": "text/plain",
-            "Content-Length": str(s_len)
-        }
-        send_response(sender_socket, 200, "OK", response_headers, response_body)
-    else:
-        send_response(sender_socket, 404, "Not Found")
+def handle_root(path, headers, sender_socket):
+    send_response(sender_socket, 200, "OK")
 
-def handle_user_agent(headers, sender_socket):
+def handle_echo(path, headers, sender_socket):
+    s = path[len("/echo/"):]
+    s_len = len(s)
+    response_body = s.encode()
+    response_headers = {
+        "Content-Type": "text/plain",
+        "Content-Length": str(s_len)
+    }
+    send_response(sender_socket, 200, "OK", response_headers, response_body)
+
+def handle_user_agent(path, headers, sender_socket):
     user_agent = headers.get("User-Agent", "Unknown")
     response_body = user_agent.encode()
     response_headers = {
@@ -59,40 +59,53 @@ def handle_user_agent(headers, sender_socket):
     }
     send_response(sender_socket, 200, "OK", response_headers, response_body)
 
-def handle_request(sender_socket):
-    """Handles the incoming HTTP request."""
-    req_bytes = sender_socket.recv(2048)
-    method, path, headers = parse_request(req_bytes)
-    print(f"Received request: {method} {path} {headers}")
-    if method == "GET":
-        if path == "/":
-            send_response(sender_socket, 200, "OK")
-        elif path.startswith("/echo/"):
-            handle_echo(path, sender_socket)
-        elif path.startswith("/user-agent"):
-            handle_user_agent(headers, sender_socket)
-        else:
-            send_response(sender_socket, 404, "Not Found")
-    else:
-        send_response(sender_socket, 405, "Method Not Allowed")
+def handle_not_found(path, headers, sender_socket):
+    send_response(sender_socket, 404, "Not Found")
 
-    # Close the connection after handling the request
-    sender_socket.close()
+ROUTES = [
+    ("GET", lambda p: p == "/", handle_root),
+    ("GET", lambda p: p.startswith("/echo/"), handle_echo),
+    ("GET", lambda p: p == "/user-agent", handle_user_agent), # Exact match for /user-agent
+]
+
+def handle_request(sender_socket):
+    """Handles the incoming HTTP request using defined routes."""
+    try:
+        req_bytes = sender_socket.recv(2048)
+        if not req_bytes: # Handle empty request / closed connection
+            return 
+        method, path, headers = parse_request(req_bytes)
+        print(f"Received request: {method} {path}")
+
+        handler = handle_not_found # Default handler
+        for route_method, path_checker, route_handler in ROUTES:
+            if method == route_method and path_checker(path):
+                handler = route_handler
+                break
+        
+        handler(path, headers, sender_socket)
+
+    except Exception as e:
+        print(f"Error handling request: {e}")
+        try:
+            send_response(sender_socket, 500, "Internal Server Error")
+        except Exception as send_e:
+            print(f"Error sending 500 response: {send_e}")
+    finally:
+        # Close the connection after handling the request or if an error occurred
+        sender_socket.close()
 
 def main():
     server_socket = socket.create_server(("localhost", 4221), reuse_port=True)
     print(f"Server started on port 4221")
     try:
         while True:
-            conn = server_socket.accept()  # wait for client
+            conn = server_socket.accept()
             sender_socket, addr = conn
-            # Start a new thread to handle the request
-            # The socket is closed in handle_request after the response is sent
             threading.Thread(target=handle_request, args=(sender_socket,), daemon=True).start()
     except KeyboardInterrupt:
         print("\nServer shutting down...")
     finally:
-        # Ensure the server socket is closed upon exit
         server_socket.close()
         print("Server socket closed.")
 
