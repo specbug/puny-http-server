@@ -54,7 +54,7 @@ def handle_root(path, headers, sender_socket, directory, body):
 def handle_echo(path, headers, sender_socket, directory, body):
     s = path[len("/echo/"):]
     content_encodings = headers.get("Accept-Encoding")
-    content_encodings = content_encodings.split(",") if content_encodings else []
+    content_encodings = content_encodings.split(", ") if content_encodings else []
     s_len = len(s)
     response_body = s.encode()
     response_headers = {
