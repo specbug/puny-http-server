@@ -1,4 +1,5 @@
-import socket  # noqa: F401
+import sys
+import socket
 import threading
 
 def parse_request(request_bytes):
@@ -61,6 +62,8 @@ def handle_user_agent(path, headers, sender_socket):
 
 def handle_file(path, headers, sender_socket):
     file_name = path[len("/files/"):]
+    dir_name = sys.argv[2]
+    file_name = f"{dir_name}/{file_name}"
     try:
         with open(file_name, "rb") as f:
             file_data = f.read()
