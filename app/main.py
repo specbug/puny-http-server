@@ -1,4 +1,5 @@
 import sys
+import gzip
 import socket
 import threading
 import os # Import os for path joining
@@ -55,6 +56,10 @@ def handle_echo(path, headers, sender_socket, directory, body):
     s = path[len("/echo/"):]
     content_encodings = headers.get("Accept-Encoding")
     content_encodings = content_encodings.split(", ") if content_encodings else []
+
+    if "gzip" in content_encodings:
+        s = gzip.compress(s.encode())
+
     s_len = len(s)
     response_body = s.encode()
     response_headers = {
